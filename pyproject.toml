@@ -1,0 +1,24 @@
+[project]
+name = "evencues"
+version = "0.1.0"
+description = "Places memory and hot cues at a fixed bar interval throughout a Rekordbox track."
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.1",
+    "flask>=3.0",
+    # Installed from GitHub master, not PyPI: the released PyPI version
+    # can't parse newer Rekordbox .EXT analysis files (PQT2/u1 tag format).
+    # The fix is merged on master but not yet in a tagged release.
+    "pyrekordbox @ git+https://github.com/dylanljones/pyrekordbox.git",
+]
+
+[project.scripts]
+evencues = "evencues.cli:cli"
+evencues-web = "evencues.webapp:main"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
