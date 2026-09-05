@@ -78,7 +78,7 @@ PAGE = """
       </div>
       <div class="field">
         <label>Track name (leave blank for whole playlist)</label>
-        <input type="text" name="track" value="{{ f.track }}">
+        <input type="text" name="track" value="{{ f.track or '' }}">
       </div>
     </div>
 
