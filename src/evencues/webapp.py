@@ -11,8 +11,9 @@ still happens on your computer.
 
 from __future__ import annotations
 
-from flask import Flask, render_template_string, request
+from flask import Flask, jsonify, render_template_string, request
 
+from evencues.db import list_playlist_names, list_track_titles
 from evencues.runner import EvencuesError, apply_playlist, preview_playlist
 
 app = Flask(__name__)
@@ -33,10 +34,11 @@ PAGE = """
   .row { display: flex; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
   .field { flex: 1; min-width: 140px; }
   label { display: block; font-size: 12px; color: #aaa; margin-bottom: 4px; }
-  input[type=text], input[type=number] {
+  input[type=text], input[type=number], select {
     width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #3a3f47; background: #14161a; color: #eee;
     box-sizing: border-box;
   }
+  .db-warn { color: #d9a441; font-size: 12px; margin-top: 4px; }
   .checks { display: flex; gap: 20px; margin: 14px 0; flex-wrap: wrap; }
   .checks label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #ccc; }
   .radios { display: flex; gap: 16px; margin: 6px 0 14px; }
@@ -74,11 +76,30 @@ PAGE = """
     <div class="row">
       <div class="field">
         <label>Playlist name</label>
+        {% if playlist_names is not none %}
+        <select name="playlist" id="playlist-select" required>
+          <option value="" {{ 'selected' if not f.playlist else '' }}>Select a playlist…</option>
+          {% for p in playlist_names %}
+          <option value="{{ p }}" {{ 'selected' if p == f.playlist else '' }}>{{ p }}</option>
+          {% endfor %}
+        </select>
+        {% else %}
         <input type="text" name="playlist" value="{{ f.playlist }}" required>
+        <div class="db-warn">Couldn't read playlists from Rekordbox — enter the name manually.</div>
+        {% endif %}
       </div>
       <div class="field">
         <label>Track name (leave blank for whole playlist)</label>
+        {% if playlist_names is not none %}
+        <select name="track" id="track-select">
+          <option value="">Whole playlist / choose a playlist first…</option>
+          {% for t in track_names %}
+          <option value="{{ t }}" {{ 'selected' if t == f.track else '' }}>{{ t }}</option>
+          {% endfor %}
+        </select>
+        {% else %}
         <input type="text" name="track" value="{{ f.track or '' }}">
+        {% endif %}
       </div>
     </div>
 
@@ -147,9 +168,72 @@ PAGE = """
       {% endfor %}
     </div>
   {% endif %}
+
+  {% if playlist_names is not none %}
+  <script>
+    (function () {
+      function optionsFragment(list, placeholder) {
+        var frag = document.createDocumentFragment();
+        var opt0 = document.createElement("option");
+        opt0.value = "";
+        opt0.textContent = placeholder;
+        frag.appendChild(opt0);
+        list.forEach(function (t) {
+          var opt = document.createElement("option");
+          opt.value = t;
+          opt.textContent = t;
+          frag.appendChild(opt);
+        });
+        return frag;
+      }
+
+      var playlistSelect = document.getElementById("playlist-select");
+      var trackSelect = document.getElementById("track-select");
+      if (!playlistSelect || !trackSelect) return;
+
+      playlistSelect.addEventListener("change", function () {
+        var name = this.value;
+        if (!name) {
+          trackSelect.innerHTML = "";
+          trackSelect.appendChild(optionsFragment([], "Whole playlist / choose a playlist first…"));
+          return;
+        }
+        trackSelect.innerHTML = "";
+        trackSelect.appendChild(optionsFragment([], "Loading…"));
+        fetch("/tracks?playlist=" + encodeURIComponent(name))
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            trackSelect.innerHTML = "";
+            trackSelect.appendChild(optionsFragment(data.tracks || [], "Whole playlist"));
+          })
+          .catch(function () {
+            trackSelect.innerHTML = "";
+            trackSelect.appendChild(optionsFragment([], "(failed to load tracks)"));
+          });
+      });
+    })();
+  </script>
+  {% endif %}
 </body>
 </html>
 """
+
+
+def _list_playlists_safe() -> list[str] | None:
+    """None signals the DB couldn't be read — caller falls back to a text input."""
+    try:
+        return list_playlist_names()
+    except Exception:
+        return None
+
+
+def _list_tracks_safe(playlist_name: str | None) -> list[str]:
+    if not playlist_name:
+        return []
+    try:
+        return list_track_titles(playlist_name)
+    except Exception:
+        return []
 
 
 def _default_form():
@@ -197,7 +281,16 @@ def _detail_lines(plan) -> list[str]:
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template_string(PAGE, f=_default_form(), error=None, plans=None, summary=None, show_detail=False)
+    f = _default_form()
+    return render_template_string(
+        PAGE, f=f, error=None, plans=None, summary=None, show_detail=False,
+        playlist_names=_list_playlists_safe(), track_names=_list_tracks_safe(f["playlist"]),
+    )
+
+
+@app.route("/tracks", methods=["GET"])
+def tracks():
+    return jsonify({"tracks": _list_tracks_safe(request.args.get("playlist", "").strip())})
 
 
 @app.route("/run", methods=["POST"])
@@ -205,6 +298,8 @@ def run():
     f = _read_form(request.form)
     action = request.form.get("action")
     mem_cap = None if f["max_memory"] <= 0 else f["max_memory"]
+    playlist_names = _list_playlists_safe()
+    track_names = _list_tracks_safe(f["playlist"])
 
     try:
         if action == "preview":
@@ -229,11 +324,20 @@ def run():
             summary = f"Done: {result['written']} written, {result['total_cues']} cues, {result['skipped']} skipped{backup_note}"
             show_detail = False
     except EvencuesError as e:
-        return render_template_string(PAGE, f=f, error=str(e), plans=None, summary=None, show_detail=False)
+        return render_template_string(
+            PAGE, f=f, error=str(e), plans=None, summary=None, show_detail=False,
+            playlist_names=playlist_names, track_names=track_names,
+        )
     except Exception as e:  # noqa: BLE001 — show the user something rather than a bare 500
-        return render_template_string(PAGE, f=f, error=f"Unexpected error: {e}", plans=None, summary=None, show_detail=False)
+        return render_template_string(
+            PAGE, f=f, error=f"Unexpected error: {e}", plans=None, summary=None, show_detail=False,
+            playlist_names=playlist_names, track_names=track_names,
+        )
 
-    return render_template_string(PAGE, f=f, error=None, plans=plans, summary=summary, show_detail=show_detail)
+    return render_template_string(
+        PAGE, f=f, error=None, plans=plans, summary=summary, show_detail=show_detail,
+        playlist_names=playlist_names, track_names=track_names,
+    )
 
 
 def main():

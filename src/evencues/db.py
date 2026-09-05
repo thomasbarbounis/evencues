@@ -43,6 +43,25 @@ def get_playlist_tracks(playlist: Any) -> list[Any]:
     return [song.Content for song in db.get_playlist_songs(PlaylistID=playlist.ID)]
 
 
+def list_playlist_names() -> list[str]:
+    """Return sorted names of real playlists, excluding folders."""
+    db = get_db()
+    names = {pl.Name for pl in db.get_playlist() if pl.Attribute != 1 and pl.Name}
+    return sorted(names)
+
+
+def list_track_titles(playlist_name: str) -> list[str]:
+    """Return track titles, in playlist order, for a playlist by exact name.
+
+    Empty list if the playlist doesn't exist — callers treat "no options"
+    the same whether that's because the playlist is empty or missing.
+    """
+    playlist = find_playlist(playlist_name)
+    if playlist is None:
+        return []
+    return [content.Title for content in get_playlist_tracks(playlist)]
+
+
 def find_track_in_playlist(playlist: Any, track_name: str) -> Any | None:
     """Find a track by exact title within a playlist.
 
