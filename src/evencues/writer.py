@@ -36,7 +36,7 @@ def backup_database(db_path: pathlib.Path) -> pathlib.Path:
     return backup_path
 
 
-def _cue_row(position_ms: float, kind: int, color_table_index: int | None, color: int, comment: str) -> dict:
+def _cue_row(position_ms: float, kind: int, color_table_index: int | None, color: int, comment: str, active_loop: int = -1) -> dict:
     return {
         "Kind": kind,
         "InMsec": int(position_ms),
@@ -49,7 +49,7 @@ def _cue_row(position_ms: float, kind: int, color_table_index: int | None, color
         "OutMpegAbs": -1,
         "Color": color,
         "ColorTableIndex": color_table_index,
-        "ActiveLoop": -1,
+        "ActiveLoop": active_loop,
         "Comment": comment,
         "BeatLoopSize": 0,
         "CueMicrosec": 0,
@@ -70,7 +70,10 @@ def build_rows(hot_entries: list[tuple[int, float]], mem_entries: list[tuple[int
         hot_rows.append(_cue_row(pos, kind=kind, color_table_index=HOT_CUE_COLOR_TABLE_INDEX, color=-1, comment=f"Hot {pad_letter} (Bar {bar_number})"))
 
     mem_rows: list[dict] = [
-        _cue_row(pos, kind=0, color_table_index=None, color=MEMORY_CUE_COLOR, comment=f"Bar {bar_number}")
+        # ColorTableIndex=0 and ActiveLoop=0 (not None/-1) match what Rekordbox's own
+        # AutoCue feature writes for memory cues — confirmed synced to Rekordbox Cloud
+        # (and thus to mobile devices), unlike our previous None/-1 defaults.
+        _cue_row(pos, kind=0, color_table_index=0, color=MEMORY_CUE_COLOR, comment=f"Bar {bar_number}", active_loop=0)
         for bar_number, pos in mem_entries
     ]
 
