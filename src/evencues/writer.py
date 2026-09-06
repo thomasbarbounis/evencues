@@ -37,16 +37,22 @@ def backup_database(db_path: pathlib.Path) -> pathlib.Path:
 
 
 def _cue_row(position_ms: float, kind: int, color_table_index: int | None, color: int, comment: str, active_loop: int = -1) -> dict:
+    # Rekordbox stores InFrame at a fixed 150 frames/sec, independent of InMsec —
+    # verified against real cue rows (both hot and memory) written by Rekordbox
+    # itself. OutFrame/OutMpegFrame/OutMpegAbs are 0 (not -1) on every real point
+    # cue we've checked, even though OutMsec is -1 to mean "no out point".
+    in_msec = int(position_ms)
+    in_frame = (in_msec * 3) // 20  # in_msec * 150 / 1000, via integer math
     return {
         "Kind": kind,
-        "InMsec": int(position_ms),
-        "InFrame": 0,
+        "InMsec": in_msec,
+        "InFrame": in_frame,
         "InMpegFrame": 0,
         "InMpegAbs": 0,
         "OutMsec": -1,
-        "OutFrame": -1,
-        "OutMpegFrame": -1,
-        "OutMpegAbs": -1,
+        "OutFrame": 0,
+        "OutMpegFrame": 0,
+        "OutMpegAbs": 0,
         "Color": color,
         "ColorTableIndex": color_table_index,
         "ActiveLoop": active_loop,
