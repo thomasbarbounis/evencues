@@ -68,6 +68,31 @@ double-click and opens the browser for you.
 The web app is a thin frontend over the same `runner.py` logic the CLI uses —
 neither one can drift out of sync with the other.
 
+### Live mode (for Rekordbox Cloud Sync / mobile devices)
+
+`apply` writes cues straight to `master.db`. That's fast and works fine
+locally, but Rekordbox Cloud Sync doesn't reliably pick up direct database
+writes — confirmed against a real account, cues placed this way often never
+reach a connected phone/tablet even though they show up fine on the PC.
+
+`evencues live` places the exact same cue plan by driving a live Rekordbox
+deck over MIDI instead — indistinguishable from a real controller press, so
+it goes through Rekordbox's own code path and does reach Cloud Sync.
+
+```
+uv run evencues live "Playlist Name" "Track Name"
+```
+
+One-time setup:
+1. Install a virtual MIDI port (e.g. [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html)), create a port named `evencues`.
+2. In Rekordbox (Performance mode → MIDI button), select `evencues` as the connected device and add these functions with these exact MIDI IN codes — see `midi_driver.py`'s module docstring for the full list and reasoning (in particular, why `Cue` must fire before `MemoryCue Set`).
+
+Before each run: load the track onto the deck the mapping targets, and pause
+the playhead at the intended anchor point (track start, or manually seeked
+past `--skip`). Every jump is a *relative* 1-bar step, so there's no way to
+detect or correct a wrong starting position afterward — a bad start means a
+bad cue placement, not an error.
+
 ## How cue placement works
 
 - Reads the actual per-beat grid from Rekordbox's analysis files (not BPM

@@ -10,6 +10,12 @@ dependencies = [
     # can't parse newer Rekordbox .EXT analysis files (PQT2/u1 tag format).
     # The fix is merged on master but not yet in a tagged release.
     "pyrekordbox @ git+https://github.com/dylanljones/pyrekordbox.git",
+    # For the live/MIDI cue-placement mode (midi_driver.py) — drives Rekordbox
+    # via a virtual MIDI port instead of writing to master.db directly, since
+    # only cues placed through Rekordbox's own controller-input code path
+    # reliably reach Rekordbox Cloud Sync.
+    "mido>=1.3",
+    "python-rtmidi>=1.5",
 ]
 
 [project.scripts]

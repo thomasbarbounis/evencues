@@ -140,6 +140,62 @@ def apply(playlist, track, all_tracks, bars, max_hot, dry_run, overwrite, max_me
         click.echo(f"\nDone: {result['written']} track(s) written, {result['total_cues']} cues, {result['skipped']} skipped.")
 
 
+@cli.command(name="live")
+@click.argument("playlist")
+@click.argument("track")
+@click.option("--bars", default=16, show_default=True, help="Bars between each cue.")
+@click.option("--max-hot", default=8, show_default=True, help="Max hot cues to place (Rekordbox caps this at 8).")
+@click.option("--max-memory", default=10, show_default=True, help="Max memory cues per track. Rekordbox's list widget has a known display bug past 10 — pass 0 for no cap once you've confirmed higher counts survive a real USB export.")
+@click.option("--skip", "skip_seconds", default=0.0, show_default=True, help="Seconds into the track the anchor point sits at — must match wherever you've manually positioned the playhead.")
+@HOT_POSITION_OPTION
+def live(playlist, track, bars, max_hot, max_memory, skip_seconds, hot_position):
+    """Place cues by driving a live Rekordbox deck over MIDI, instead of
+    writing to the database directly.
+
+    Unlike `apply`, cues placed this way reliably reach Rekordbox Cloud Sync
+    (and therefore connected mobile devices) — because they go through
+    Rekordbox's own controller-input code path instead of a direct database
+    write. See midi_driver.py's module docstring for the one-time MIDI
+    mapping this requires.
+
+    Before running this, in Rekordbox: load the track onto the deck the
+    mapping targets, and position the playhead at the intended anchor point
+    (bar 1 / track start if --skip is 0, otherwise manually seeked to the
+    real first downbeat past --skip). Every cue placement here is a
+    *relative* beat jump from that starting point — there's no way to
+    detect or correct a wrong starting position afterward.
+
+        evencues live "Playlist Name" "Track Name"
+    """
+    mem_cap = None if max_memory <= 0 else max_memory
+    try:
+        content = load_targets(playlist, track, False)[0]
+    except EvencuesError as e:
+        raise click.ClickException(str(e))
+
+    click.confirm(
+        f"Confirm: {content.Title!r} is loaded on the mapped deck, and the playhead "
+        f"is at the intended anchor point. Continue?",
+        abort=True,
+    )
+
+    from evencues.midi_driver import open_port, place_cues_for_track
+
+    port = open_port()
+    try:
+        result = place_cues_for_track(port, content, bars, skip_seconds, max_hot, mem_cap, hot_position)
+    finally:
+        port.close()
+
+    click.echo(f"{content.Title} — BPM {result['bpm']:.1f}")
+    click.echo(
+        f"{result['total_marks']} marks every {bars} bars: "
+        f"{result['hot_set']} hot cues, {result['mem_set']} memory cues placed live"
+    )
+    if result["dropped"]:
+        click.echo(f"{result['dropped']} dropped (past the memory-cue cap)")
+
+
 @cli.command()
 @click.argument("playlist")
 @click.argument("track")
