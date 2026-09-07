@@ -142,13 +142,15 @@ def apply(playlist, track, all_tracks, bars, max_hot, dry_run, overwrite, max_me
 
 @cli.command(name="live")
 @click.argument("playlist")
-@click.argument("track")
+@click.argument("track", required=False)
+@click.option("--all", "all_tracks", is_flag=True, help="Run on every track in the playlist, walking it live via Load/Browse Down.")
 @click.option("--bars", default=16, show_default=True, help="Bars between each cue.")
 @click.option("--max-hot", default=8, show_default=True, help="Max hot cues to place (Rekordbox caps this at 8).")
 @click.option("--max-memory", default=10, show_default=True, help="Max memory cues per track. Rekordbox's list widget has a known display bug past 10 — pass 0 for no cap once you've confirmed higher counts survive a real USB export.")
 @click.option("--skip", "skip_seconds", default=0.0, show_default=True, help="Seconds into the track the anchor point sits at — must match wherever you've manually positioned the playhead.")
+@click.option("--overwrite", is_flag=True, help="Delete existing cues on a track before placing new ones, instead of skipping it.")
 @HOT_POSITION_OPTION
-def live(playlist, track, bars, max_hot, max_memory, skip_seconds, hot_position):
+def live(playlist, track, all_tracks, bars, max_hot, max_memory, skip_seconds, overwrite, hot_position):
     """Place cues by driving a live Rekordbox deck over MIDI, instead of
     writing to the database directly.
 
@@ -158,16 +160,52 @@ def live(playlist, track, bars, max_hot, max_memory, skip_seconds, hot_position)
     write. See midi_driver.py's module docstring for the one-time MIDI
     mapping this requires.
 
-    Before running this, in Rekordbox: load the track onto the deck the
-    mapping targets, and position the playhead at the intended anchor point
-    (bar 1 / track start if --skip is 0, otherwise manually seeked to the
-    real first downbeat past --skip). Every cue placement here is a
-    *relative* beat jump from that starting point — there's no way to
-    detect or correct a wrong starting position afterward.
+    Single track — load it onto the mapped deck yourself first, with the
+    playhead at the intended anchor point (bar 1 / track start if --skip is
+    0, otherwise manually seeked to the real first downbeat past --skip):
 
         evencues live "Playlist Name" "Track Name"
+
+    Whole playlist — sort Rekordbox's browser by the Track Title column
+    (ascending) first, since --all walks tracks in that order via Load/Browse
+    Down, and highlight (don't load) the first track in the sorted list:
+
+        evencues live "Playlist Name" --all
+
+    Every cue placement is a *relative* beat jump from wherever the deck
+    already was — there's no way to detect or correct a wrong starting
+    position afterward.
     """
     mem_cap = None if max_memory <= 0 else max_memory
+
+    from evencues.midi_driver import open_port, place_cues_for_playlist, place_cues_for_track
+
+    if all_tracks:
+        try:
+            targets = load_targets(playlist, None, True)
+        except EvencuesError as e:
+            raise click.ClickException(str(e))
+        targets = sorted(targets, key=lambda c: (c.Title or "").lower())
+
+        click.confirm(
+            f"Confirm: Rekordbox's browser is sorted by Track Title (ascending), and "
+            f"{targets[0].Title!r} is highlighted (not loaded). Continue?",
+            abort=True,
+        )
+
+        port = open_port()
+        try:
+            results = place_cues_for_playlist(port, targets, bars, skip_seconds, max_hot, mem_cap, hot_position, overwrite)
+        finally:
+            port.close()
+
+        for result in results:
+            if result.get("skipped_reason"):
+                click.echo(f"{result['title']} — SKIPPED: {result['skipped_reason']}")
+            else:
+                click.echo(f"{result['title']} — {result['hot_set']} hot, {result['mem_set']} memory cues placed live")
+        return
+
     try:
         content = load_targets(playlist, track, False)[0]
     except EvencuesError as e:
@@ -179,13 +217,15 @@ def live(playlist, track, bars, max_hot, max_memory, skip_seconds, hot_position)
         abort=True,
     )
 
-    from evencues.midi_driver import open_port, place_cues_for_track
-
     port = open_port()
     try:
-        result = place_cues_for_track(port, content, bars, skip_seconds, max_hot, mem_cap, hot_position)
+        result = place_cues_for_track(port, content, bars, skip_seconds, max_hot, mem_cap, hot_position, overwrite)
     finally:
         port.close()
+
+    if result.get("skipped_reason"):
+        click.echo(f"{content.Title} — SKIPPED: {result['skipped_reason']}")
+        return
 
     click.echo(f"{content.Title} — BPM {result['bpm']:.1f}")
     click.echo(

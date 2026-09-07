@@ -66,7 +66,10 @@ Then open http://127.0.0.1:5151. On Windows, `start-web.bat` does this in one
 double-click and opens the browser for you.
 
 The web app is a thin frontend over the same `runner.py` logic the CLI uses —
-neither one can drift out of sync with the other.
+neither one can drift out of sync with the other. It also has a `/live` page
+(link at the top) for the live/MIDI mode described below, covering single
+tracks including `--overwrite` — whole-playlist batch mode is CLI/`--all`
+only for now.
 
 ### Live mode (for Rekordbox Cloud Sync / mobile devices)
 
@@ -81,11 +84,19 @@ it goes through Rekordbox's own code path and does reach Cloud Sync.
 
 ```
 uv run evencues live "Playlist Name" "Track Name"
+uv run evencues live "Playlist Name" "Track Name" --overwrite
+uv run evencues live "Playlist Name" --all
 ```
+
+`--overwrite` deletes every existing hot/memory cue on the track first
+(hot + memory), then places the new plan. `--all` walks every track in the
+playlist automatically via `Load`/`Browse Down`, in whatever order
+Rekordbox's browser is currently sorted by — sort it by Track Title
+(ascending) and highlight (don't load) the first track before starting.
 
 One-time setup:
 1. Install a virtual MIDI port (e.g. [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html)), create a port named `evencues`.
-2. In Rekordbox (Performance mode → MIDI button), select `evencues` as the connected device and add these functions with these exact MIDI IN codes — see `midi_driver.py`'s module docstring for the full list and reasoning (in particular, why `Cue` must fire before `MemoryCue Set`).
+2. In Rekordbox (Performance mode → MIDI button), select `evencues` as the connected device and add these functions with these exact MIDI IN codes — see `midi_driver.py`'s module docstring for the full list and reasoning (in particular, why `Cue` must fire before `MemoryCue Set`, and why `JumpToTrackStart` — not `Load` — is what actually resets the playhead to position 0).
 
 Before each run: load the track onto the deck the mapping targets, and pause
 the playhead at the intended anchor point (track start, or manually seeked
